@@ -38,6 +38,46 @@ ctest --test-dir build          # run tests
 
 Adjust these once the actual build system lands.
 
+## Learning context — READ THIS
+
+This is a **learning exercise**, not a ship-it project. It implements Week 12–17
+of a personal ML foundations plan
+(`/Users/ajit/Code/ml-checklist/ml-fm/ml-foundation-models-learning-plan-2.md`,
+section "Week 12–17: Extend C++ micrograd to Tensors + MNIST"). The user is
+writing the code themselves to learn.
+
+**How to help here:** explain, review, and unblock — but do NOT write the
+implementation unless explicitly asked. Point out bugs, answer design questions,
+and let the user type the code. When they ask "what's next", map against the
+roadmap below.
+
+### Roadmap (do these in order)
+
+1. **Tensor / 2D matrix class** ← current step. Storage node holds both
+   `std::vector<float> data` and `std::vector<float> grad`. Methods: `zeros`,
+   `randn`, `at(i, j)`, `set(i, j, val)`, and `operator<<` for printing.
+   Done = `std::cout << Tensor::randn(2, 3);` prints a matrix and a `grad`
+   buffer sits ready alongside `data`.
+2. **Matmul** forward `C = A @ B` (triple loop) + backward
+   `dA = dC @ Bᵀ`, `dB = Aᵀ @ dC`. Verify against a hand calculation.
+3. **Element-wise ops + broadcasting** (add/sub/mul, bias add
+   `(batch, features) + (1, features)`). Broadcast-backward sums the gradient
+   back over the broadcast dim (e.g. bias grad sums across the batch).
+4. **Activations** — ReLU, softmax (`exp(x - max) / sum`).
+5. **Cross-entropy loss** — fuse softmax+CE; backward is
+   `(softmax_output - one_hot) / batch_size`.
+6. **MNIST loader** — parse IDX binary (16-byte header, then raw bytes),
+   normalize to [0, 1], flatten to 784.
+7. **2-layer MLP** — 784 → 128 (ReLU) → 10 (softmax), SGD
+   `w -= lr * grad`. Target ~95% test accuracy.
+
+Prerequisite before step 2: watch makemore Part 4 ("Backprop Ninja") — it derives
+the matmul / broadcasting / softmax-CE backward passes.
+
+Design constraints from the plan: **float only** (do not template on dtype),
+row-major storage, `shared_ptr` graph nodes with per-node backward closures.
+(The user chose `row_stride`/`col_stride` over the plan's single `stride`.)
+
 ## Design notes / conventions
 
 - **C++23**, no ML dependencies — the point is to build autograd from scratch.
