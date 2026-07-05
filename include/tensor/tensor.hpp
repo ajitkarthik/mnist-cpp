@@ -7,8 +7,11 @@
 // closure once. Data is a flat row-major buffer described by `shape`.
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <ostream>
+#include <stack>
+#include <unordered_set>
 #include <vector>
 
 namespace tn {
@@ -23,8 +26,10 @@ class Tensor {
         int row_stride;
         int col_stride;
         OpCode opcode;
-        // track the computational graph
+        // track the computational graph for backprop
         std::vector<std::shared_ptr<Node>> prev;
+        // local callback function for backprop
+        std::function<void()> backward;
 
         Node(int rows, int cols, float fill)
             : data(rows * cols, fill),
@@ -37,21 +42,18 @@ class Tensor {
 
         Node(int rows, int cols, std::vector<float> data)
             : data(std::move(data)),
-              grad(
-                  rows * cols,
-                  0.0f),  // can't use data.size() because of the move operation
+              grad(rows * cols,
+                   0.0f),  // can't use data.size() because of the move operation
               rows(rows),
               cols(cols),
               row_stride(cols),
               col_stride(1),
               opcode(OpCode::NONE) {}
 
-        Node(int rows, int cols, int row_stride, int col_stride,
-             std::vector<float> data)
+        Node(int rows, int cols, int row_stride, int col_stride, std::vector<float> data)
             : data(std::move(data)),
-              grad(
-                  rows * cols,
-                  0.0f),  // can't use data.size() because of the move operation
+              grad(rows * cols,
+                   0.0f),  // can't use data.size() because of the move operation
               rows(rows),
               cols(cols),
               row_stride(row_stride),
@@ -59,8 +61,9 @@ class Tensor {
               opcode(OpCode::NONE) {}
     };
 
-    // Lambdas to calculate local derivatives
-    void matmul_backward(Tensor& upstream_gradient);
+    // utility function
+    void DFSVisit(Tensor::Node* curr, std::unordered_set<Node*>& visited,
+                  std::stack<Node*>& stack);
 
    public:
     // Empty/undefined tensor (no storage). Assign into it later.
@@ -91,7 +94,7 @@ class Tensor {
     static Tensor zeros(int rows, int cols);
 
     // backward pass
-    void local_backward();
+    void backward(void);
 
     // Transpose
     // NOTE: This operation does not maintain gradients

@@ -3,9 +3,12 @@
 
 #include <assert.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <memory>
 #include <random>
+#include <stack>
+#include <unordered_set>
 #include <vector>
 
 namespace tn {
@@ -15,9 +18,7 @@ Tensor::Tensor(int rows, int cols, float fill) {
     node_ = std::make_shared<Node>(rows, cols, fill);
 }
 
-Tensor::Tensor(int rows, int cols) {
-    node_ = std::make_shared<Node>(rows, cols, 0.0f);
-}
+Tensor::Tensor(int rows, int cols) { node_ = std::make_shared<Node>(rows, cols, 0.0f); }
 
 void Tensor::set(int i, int j, float val) {
     assert(i >= 0 && i < node_->rows);
@@ -56,11 +57,6 @@ Tensor Tensor::matmul(const Tensor& t) const {
     // output tensor is of shape: this->node_->rows, t.node_->cols
     Tensor output(this->node_->rows, t.node_->cols);
 
-    // Save away for the backward pass
-    output.node_->prev.push_back(this->node_);
-    output.node_->prev.push_back(t.node_);
-    output.node_->opcode = OpCode::MATMUL;
-
     for (int p = 0; p < this->node_->rows; p++) {
         for (int q = 0; q < t.node_->cols; q++) {
             float val = 0.0f;
@@ -70,40 +66,66 @@ Tensor Tensor::matmul(const Tensor& t) const {
             output.set(p, q, val);
         }
     }
+
+    // Save away for the backward pass
+    auto a = this->node_;
+    auto b = t.node_;
+    /* Note: here we save the raw pointer otherwise we get a circular ref with
+     * shared pointers */
+    auto out = output.node_.get();
+
+    output.node_->backward = [a, b, out]() {
+        // compute local gradient
+        Tensor dC = Tensor(out->rows, out->cols, out->grad);
+        Tensor dA = dC.matmul(Tensor(*b).transpose()); /* dA = dC @ B.T */
+        Tensor dB = Tensor(*a).transpose().matmul(dC); /* dB = A.T @ dC */
+
+        // flow the gradients backward
+        for (int i = 0; i < dA.node_->rows; i++)
+            for (int j = 0; j < dA.node_->cols; j++)
+                a->grad[i * a->row_stride + j * a->col_stride] += dA.at(i, j);
+
+        for (int i = 0; i < dB.node_->rows; i++)
+            for (int j = 0; j < dB.node_->cols; j++)
+                b->grad[i * b->row_stride + j * b->col_stride] += dB.at(i, j);
+    };
+
+    output.node_->prev.push_back(a);
+    output.node_->prev.push_back(b);
     return output;
+}
+
+/* Construct a topological sort of the graph, then walk through the sorted
+ * nodes, calling the lambda for each node */
+void Tensor::backward(void) {
+    std::stack<Node*> stack;
+    std::unordered_set<Node*> visited;
+
+    // initialize gradient for the root node
+    std::fill(this->node_->grad.begin(), this->node_->grad.end(), 1.0f);
+
+    // Initialize root of toposort with the current node
+    DFSVisit(this->node_.get(), visited, stack);
+
+    while (!stack.empty()) {
+        Node* top = stack.top();
+        if (top->backward) top->backward();
+        stack.pop();
+    }
 }
 
 Tensor Tensor::transpose() const {
     Tensor t;
-    t.node_ = std::make_shared<Node>(
-        this->node_->cols, this->node_->rows, this->node_->col_stride,
-        this->node_->row_stride, this->node_->data);
+    t.node_ = std::make_shared<Node>(this->node_->cols, this->node_->rows,
+                                     this->node_->col_stride, this->node_->row_stride,
+                                     this->node_->data);
     return t;
-}
-
-void Tensor::matmul_backward(Tensor& upstream_gradient) {
-    Tensor dA = upstream_gradient.matmul(
-        Tensor(*(this->node_->prev[1])).transpose() /* B.T */);
-    auto& ga = this->node_->prev[0]->grad;
-    for (int i = 0; i < dA.node_->rows; i++)
-        for (int j = 0; j < dA.node_->cols; j++)
-            ga[i * this->node_->prev[0]->row_stride +
-               j * this->node_->prev[0]->col_stride] += dA.at(i, j);
-
-    Tensor dB =
-        Tensor(*(this->node_->prev[0])).transpose().matmul(upstream_gradient);
-    auto& gb = this->node_->prev[1]->grad;
-    for (int i = 0; i < dB.node_->rows; i++)
-        for (int j = 0; j < dB.node_->cols; j++)
-            gb[i * this->node_->prev[1]->row_stride +
-               j * this->node_->prev[1]->col_stride] += dB.at(i, j);
 }
 
 std::vector<float> Tensor::flatten() const {
     std::vector<float> output;
     output.reserve(this->node_->rows * this->node_->cols);
-    if (this->node_->row_stride == this->node_->cols &&
-        this->node_->col_stride == 1)
+    if (this->node_->row_stride == this->node_->cols && this->node_->col_stride == 1)
         output = this->node_->data;
     else {
         for (int i = 0; i < this->node_->rows; i++) {
@@ -113,6 +135,17 @@ std::vector<float> Tensor::flatten() const {
         }
     }
     return output;
+}
+
+void Tensor::DFSVisit(Tensor::Node* curr, std::unordered_set<Node*>& visited,
+                      std::stack<Node*>& stack) {
+    visited.insert(curr);
+    for (const auto& p : curr->prev) {
+        if (!visited.contains(p.get())) {
+            DFSVisit(p.get(), visited, stack);
+        }
+    }
+    stack.push(curr);
 }
 
 std::ostream& operator<<(std::ostream& os, const Tensor& t) {
