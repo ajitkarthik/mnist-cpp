@@ -21,22 +21,24 @@ Tensor::Tensor(int rows, int cols, float fill) {
 Tensor::Tensor(int rows, int cols) { node_ = std::make_shared<Node>(rows, cols, 0.0f); }
 
 void Tensor::set(int i, int j, float val) {
-    assert(i >= 0 && i < node_->rows);
-    assert(j >= 0 && j < node_->cols);
+    assert(i >= 0 && i < rows());
+    assert(j >= 0 && j < cols());
     node_->data[(i * node_->row_stride) + (j * node_->col_stride)] = val;
 }
 
 float Tensor::at(int i, int j) const {
-    assert(i >= 0 && i < node_->rows);
-    assert(j >= 0 && j < node_->cols);
+    assert(i >= 0 && i < rows());
+    assert(j >= 0 && j < cols());
     return node_->data[(i * node_->row_stride) + (j * node_->col_stride)];
 }
 
 float Tensor::grad_at(int i, int j) const {
-    assert(i >= 0 && i < node_->rows);
-    assert(j >= 0 && j < node_->cols);
+    assert(i >= 0 && i < rows());
+    assert(j >= 0 && j < cols());
     return node_->grad[(i * node_->row_stride) + (j * node_->col_stride)];
 }
+
+void Tensor::zero_grad() { std::fill(node_->grad.begin(), node_->grad.end(), 0.0f); }
 
 int Tensor::rows() const { return node_->rows; }
 
@@ -44,8 +46,8 @@ int Tensor::cols() const { return node_->cols; }
 
 float Tensor::sum() const {
     float sum = 0.0f;
-    for (int i=0; i<rows(); i++) {
-        for (int j=0; j<cols(); j++) {
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
             sum += at(i, j);
         }
     }
@@ -73,22 +75,22 @@ Tensor::Tensor(int rows, int cols, std::vector<float> data) {
 Tensor::Tensor(Node& n) { node_ = std::make_shared<Node>(n); }
 
 Tensor Tensor::matmul(const Tensor& t) const {
-    assert(this->node_->cols == t.node_->rows);
-    // output tensor is of shape: this->node_->rows, t.node_->cols
-    Tensor output(this->node_->rows, t.node_->cols);
+    assert(cols() == t.rows());
+    // output tensor is of shape: node_->rows, t.node_->cols
+    Tensor output(node_->rows, t.node_->cols);
 
-    for (int p = 0; p < this->node_->rows; p++) {
+    for (int p = 0; p < node_->rows; p++) {
         for (int q = 0; q < t.node_->cols; q++) {
             float val = 0.0f;
-            for (int k = 0; k < this->node_->cols; k++) {
-                val += (this->at(p, k) * t.at(k, q));
+            for (int k = 0; k < node_->cols; k++) {
+                val += (at(p, k) * t.at(k, q));
             }
             output.set(p, q, val);
         }
     }
 
     // Save away for the backward pass
-    auto a = this->node_;
+    auto a = node_;
     auto b = t.node_;
     /* Note: here we save the raw pointer otherwise we get a circular ref with
      * shared pointers */
@@ -110,6 +112,35 @@ Tensor Tensor::matmul(const Tensor& t) const {
                 b->grad[i * b->row_stride + j * b->col_stride] += dB.at(i, j);
     };
 
+    output.node_->prev.push_back(a);
+    output.node_->prev.push_back(b);
+    return output;
+}
+
+Tensor Tensor::add(const Tensor& t) const {
+    assert(rows() == t.rows() && cols() == t.cols());
+    Tensor output(rows(), cols());
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
+            output.set(i, j, at(i, j) + t.at(i, j));
+        }
+    }
+
+    // Save away for the backward pass
+    auto a = node_;
+    auto b = t.node_;
+    auto out = output.node_.get();
+    output.node_->backward = [a, b, out]() {
+        Tensor dC = Tensor(out->rows, out->cols, out->grad);
+
+        for (int i = 0; i < dC.rows(); i++)
+            for (int j = 0; j < dC.cols(); j++)
+                a->grad[i * a->row_stride + j * a->col_stride] += dC.at(i, j);
+
+        for (int i = 0; i < dC.node_->rows; i++)
+            for (int j = 0; j < dC.node_->cols; j++)
+                b->grad[i * b->row_stride + j * b->col_stride] += dC.at(i, j);
+    };
     output.node_->prev.push_back(a);
     output.node_->prev.push_back(b);
     return output;
