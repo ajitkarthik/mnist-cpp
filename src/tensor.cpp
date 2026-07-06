@@ -32,6 +32,26 @@ float Tensor::at(int i, int j) const {
     return node_->data[(i * node_->row_stride) + (j * node_->col_stride)];
 }
 
+float Tensor::grad_at(int i, int j) const {
+    assert(i >= 0 && i < node_->rows);
+    assert(j >= 0 && j < node_->cols);
+    return node_->grad[(i * node_->row_stride) + (j * node_->col_stride)];
+}
+
+int Tensor::rows() const { return node_->rows; }
+
+int Tensor::cols() const { return node_->cols; }
+
+float Tensor::sum() const {
+    float sum = 0.0f;
+    for (int i=0; i<rows(); i++) {
+        for (int j=0; j<cols(); j++) {
+            sum += at(i, j);
+        }
+    }
+    return sum;
+}
+
 Tensor Tensor::zeros(int rows, int cols) { return Tensor(rows, cols); }
 
 Tensor Tensor::randn(int rows, int cols) {
@@ -92,6 +112,21 @@ Tensor Tensor::matmul(const Tensor& t) const {
 
     output.node_->prev.push_back(a);
     output.node_->prev.push_back(b);
+    return output;
+}
+
+Tensor Tensor::add(const float val) {
+    Tensor output(this->node_->rows, this->node_->cols, this->node_->data);
+    for (int i = 0; i < this->node_->rows; i++) {
+        for (int j = 0; j < this->node_->cols; j++) {
+            output.set(i, j, this->at(i, j) + val);
+        }
+    }
+    return output;
+}
+
+Tensor Tensor::clone() const {
+    Tensor output(this->node_->rows, this->node_->cols, this->node_->data);
     return output;
 }
 

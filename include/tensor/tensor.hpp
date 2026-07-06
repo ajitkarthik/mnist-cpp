@@ -87,22 +87,27 @@ class Tensor {
     // return element [i, j]
     float at(int i, int j) const;
 
+    // return grad at [i, j]
+    float grad_at(int i, int j) const;
+
     // flatten a Tensor to a vector<float>
     std::vector<float> flatten() const;
 
     static Tensor randn(int rows, int cols);
     static Tensor zeros(int rows, int cols);
 
+    int rows() const;
+    int cols() const;
+
     // backward pass
     void backward(void);
 
-    // Transpose
-    // NOTE: This operation does not maintain gradients
+    // Tensor ops
     Tensor transpose() const;
-
-    // GRADIENT MAINTAINING FUNCTIONS
-    // Matrix multiplication
     Tensor matmul(const Tensor&) const;
+    Tensor add(const float val);
+    Tensor clone() const;
+    float sum() const;  // returns the sum of all elements of a tensor
 
     std::shared_ptr<Node> node_;
 };
