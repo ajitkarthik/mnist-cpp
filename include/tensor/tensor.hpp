@@ -113,7 +113,8 @@ class Tensor {
     float sum() const;  // returns the sum of all elements of a tensor
     Tensor add(const Tensor&) const;
     Tensor sub(const Tensor&) const;
-    Tensor mul(const Tensor&) const; /* Hadamard product */
+    Tensor mul(const Tensor&) const;          /* Hadamard product */
+    Tensor mul_nograd(const Tensor& t) const; /* Hadamard product */
 
     std::shared_ptr<Node> node_;
 };

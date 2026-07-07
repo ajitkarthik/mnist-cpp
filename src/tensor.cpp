@@ -175,6 +175,48 @@ Tensor Tensor::sub(const Tensor& t) const { /* C = A - B */
     return output;
 }
 
+Tensor Tensor::mul(const Tensor& t) const { /* C = A * B (Hadamard product) */
+    assert(rows() == t.rows() && cols() == t.cols());
+    Tensor output(rows(), cols());
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
+            output.set(i, j, at(i, j) * t.at(i, j));
+        }
+    }
+
+    // Save away for the backward pass
+    auto a = node_;
+    auto b = t.node_;
+    auto out = output.node_.get();
+    output.node_->backward = [a, b, out]() {
+        Tensor dC = Tensor(out->rows, out->cols, out->grad);
+        Tensor dC_times_B = dC.mul_nograd(Tensor(b->rows, b->cols, b->data));
+        Tensor dC_times_A = dC.mul_nograd(Tensor(a->rows, a->cols, a->data));
+
+        for (int i = 0; i < dC.rows(); i++)
+            for (int j = 0; j < dC.cols(); j++)
+                a->grad[i * a->row_stride + j * a->col_stride] += dC_times_B.at(i, j);
+
+        for (int i = 0; i < dC.node_->rows; i++)
+            for (int j = 0; j < dC.node_->cols; j++)
+                b->grad[i * b->row_stride + j * b->col_stride] += dC_times_A.at(i, j);
+    };
+    output.node_->prev.push_back(a);
+    output.node_->prev.push_back(b);
+    return output;
+}
+
+Tensor Tensor::mul_nograd(const Tensor& t) const { /* C = A * B (Hadamard product) */
+    assert(rows() == t.rows() && cols() == t.cols());
+    Tensor output(rows(), cols());
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
+            output.set(i, j, at(i, j) * t.at(i, j));
+        }
+    }
+    return output;
+}
+
 Tensor Tensor::add(const float val) {
     Tensor output(node_->rows, node_->cols, node_->data);
     for (int i = 0; i < node_->rows; i++) {

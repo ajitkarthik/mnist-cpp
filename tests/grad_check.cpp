@@ -115,6 +115,25 @@ int main() {
     }
     A.zero_grad();
 
+    // mul (Hadamard)
+    Tensor test4 = A.mul(C);
+    test4.backward();
+
+    for (int i = 0; i < A.rows(); i++) {
+        for (int j = 0; j < A.cols(); j++) {
+            Tensor A_plus = A.clone();
+            Tensor A_minus = A.clone();
+            A_plus.set(i, j, A.at(i, j) + e);
+            A_minus.set(i, j, A.at(i, j) - e);
+            float L_plus = (A_plus.mul(C)).sum();
+            float L_minus = (A_minus.mul(C)).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dA", i, j, A.grad_at(i, j), numeric, worst);
+        }
+    }
+    A.zero_grad();
+
     if (worst > tol) {
         std::print("FAIL: max relative error {} exceeds tolerance {}\n", worst, tol);
         return 1;
