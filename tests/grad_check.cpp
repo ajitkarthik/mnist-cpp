@@ -81,6 +81,40 @@ int main() {
     }
     A.zero_grad();
 
+    for (int i = 0; i < C.rows(); i++) {
+        for (int j = 0; j < C.cols(); j++) {
+            Tensor C_plus = C.clone();
+            Tensor C_minus = C.clone();
+            C_plus.set(i, j, C.at(i, j) + e);
+            C_minus.set(i, j, C.at(i, j) - e);
+            float L_plus = (C_plus.add(A)).sum();
+            float L_minus = (C_minus.add(A)).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dC", i, j, C.grad_at(i, j), numeric, worst);
+        }
+    }
+    C.zero_grad();
+
+    // sub
+    Tensor test3 = A.sub(C);
+    test3.backward();
+
+    for (int i = 0; i < A.rows(); i++) {
+        for (int j = 0; j < A.cols(); j++) {
+            Tensor A_plus = A.clone();
+            Tensor A_minus = A.clone();
+            A_plus.set(i, j, A.at(i, j) + e);
+            A_minus.set(i, j, A.at(i, j) - e);
+            float L_plus = (A_plus.sub(C)).sum();
+            float L_minus = (A_minus.sub(C)).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dA", i, j, A.grad_at(i, j), numeric, worst);
+        }
+    }
+    A.zero_grad();
+
     if (worst > tol) {
         std::print("FAIL: max relative error {} exceeds tolerance {}\n", worst, tol);
         return 1;

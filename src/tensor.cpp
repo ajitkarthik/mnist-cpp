@@ -68,13 +68,13 @@ Tensor Tensor::randn(int rows, int cols) {
 }
 
 Tensor::Tensor(int rows, int cols, std::vector<float> data) {
-    assert(data.size() == rows * cols);
+    assert(static_cast<int>(data.size()) == rows * cols);
     node_ = std::make_shared<Node>(rows, cols, std::move(data));
 }
 
 Tensor::Tensor(Node& n) { node_ = std::make_shared<Node>(n); }
 
-Tensor Tensor::matmul(const Tensor& t) const {
+Tensor Tensor::matmul(const Tensor& t) const { /* C = A @ B */
     assert(cols() == t.rows());
     // output tensor is of shape: node_->rows, t.node_->cols
     Tensor output(node_->rows, t.node_->cols);
@@ -117,7 +117,7 @@ Tensor Tensor::matmul(const Tensor& t) const {
     return output;
 }
 
-Tensor Tensor::add(const Tensor& t) const {
+Tensor Tensor::add(const Tensor& t) const { /* C = A + B */
     assert(rows() == t.rows() && cols() == t.cols());
     Tensor output(rows(), cols());
     for (int i = 0; i < rows(); i++) {
@@ -146,18 +146,47 @@ Tensor Tensor::add(const Tensor& t) const {
     return output;
 }
 
+Tensor Tensor::sub(const Tensor& t) const { /* C = A - B */
+    assert(rows() == t.rows() && cols() == t.cols());
+    Tensor output(rows(), cols());
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
+            output.set(i, j, at(i, j) - t.at(i, j));
+        }
+    }
+
+    // Save away for the backward pass
+    auto a = node_;
+    auto b = t.node_;
+    auto out = output.node_.get();
+    output.node_->backward = [a, b, out]() {
+        Tensor dC = Tensor(out->rows, out->cols, out->grad);
+
+        for (int i = 0; i < dC.rows(); i++)
+            for (int j = 0; j < dC.cols(); j++)
+                a->grad[i * a->row_stride + j * a->col_stride] += dC.at(i, j);
+
+        for (int i = 0; i < dC.node_->rows; i++)
+            for (int j = 0; j < dC.node_->cols; j++)
+                b->grad[i * b->row_stride + j * b->col_stride] += -dC.at(i, j);
+    };
+    output.node_->prev.push_back(a);
+    output.node_->prev.push_back(b);
+    return output;
+}
+
 Tensor Tensor::add(const float val) {
-    Tensor output(this->node_->rows, this->node_->cols, this->node_->data);
-    for (int i = 0; i < this->node_->rows; i++) {
-        for (int j = 0; j < this->node_->cols; j++) {
-            output.set(i, j, this->at(i, j) + val);
+    Tensor output(node_->rows, node_->cols, node_->data);
+    for (int i = 0; i < node_->rows; i++) {
+        for (int j = 0; j < node_->cols; j++) {
+            output.set(i, j, at(i, j) + val);
         }
     }
     return output;
 }
 
 Tensor Tensor::clone() const {
-    Tensor output(this->node_->rows, this->node_->cols, this->node_->data);
+    Tensor output(node_->rows, node_->cols, node_->data);
     return output;
 }
 
@@ -168,10 +197,10 @@ void Tensor::backward(void) {
     std::unordered_set<Node*> visited;
 
     // initialize gradient for the root node
-    std::fill(this->node_->grad.begin(), this->node_->grad.end(), 1.0f);
+    std::fill(node_->grad.begin(), node_->grad.end(), 1.0f);
 
     // Initialize root of toposort with the current node
-    DFSVisit(this->node_.get(), visited, stack);
+    DFSVisit(node_.get(), visited, stack);
 
     while (!stack.empty()) {
         Node* top = stack.top();
@@ -182,20 +211,19 @@ void Tensor::backward(void) {
 
 Tensor Tensor::transpose() const {
     Tensor t;
-    t.node_ = std::make_shared<Node>(this->node_->cols, this->node_->rows,
-                                     this->node_->col_stride, this->node_->row_stride,
-                                     this->node_->data);
+    t.node_ = std::make_shared<Node>(node_->cols, node_->rows, node_->col_stride,
+                                     node_->row_stride, node_->data);
     return t;
 }
 
 std::vector<float> Tensor::flatten() const {
     std::vector<float> output;
-    output.reserve(this->node_->rows * this->node_->cols);
-    if (this->node_->row_stride == this->node_->cols && this->node_->col_stride == 1)
-        output = this->node_->data;
+    output.reserve(node_->rows * node_->cols);
+    if (node_->row_stride == node_->cols && node_->col_stride == 1)
+        output = node_->data;
     else {
-        for (int i = 0; i < this->node_->rows; i++) {
-            for (int j = 0; j < this->node_->cols; j++) {
+        for (int i = 0; i < node_->rows; i++) {
+            for (int j = 0; j < node_->cols; j++) {
                 output.push_back(at(i, j));
             }
         }
