@@ -189,17 +189,14 @@ Tensor Tensor::mul(const Tensor& t) const { /* C = A * B (Hadamard product) */
     auto b = t.node_;
     auto out = output.node_.get();
     output.node_->backward = [a, b, out]() {
-        Tensor dC = Tensor(out->rows, out->cols, out->grad);
-        Tensor dC_times_B = dC.mul_nograd(Tensor(b->rows, b->cols, b->data));
-        Tensor dC_times_A = dC.mul_nograd(Tensor(a->rows, a->cols, a->data));
-
-        for (int i = 0; i < dC.rows(); i++)
-            for (int j = 0; j < dC.cols(); j++)
-                a->grad[i * a->row_stride + j * a->col_stride] += dC_times_B.at(i, j);
-
-        for (int i = 0; i < dC.node_->rows; i++)
-            for (int j = 0; j < dC.node_->cols; j++)
-                b->grad[i * b->row_stride + j * b->col_stride] += dC_times_A.at(i, j);
+        for (int i = 0; i < out->rows; i++)
+            for (int j = 0; j < out->cols; j++) {
+                float g = out->grad[i * out->row_stride + j * out->col_stride];
+                a->grad[i * a->row_stride + j * a->col_stride] +=
+                    g * b->data[i * b->row_stride + j * b->col_stride];
+                b->grad[i * b->row_stride + j * b->col_stride] +=
+                    g * a->data[i * a->row_stride + j * a->col_stride];
+            }
     };
     output.node_->prev.push_back(a);
     output.node_->prev.push_back(b);

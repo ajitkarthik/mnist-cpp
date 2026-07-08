@@ -64,6 +64,7 @@ class Tensor {
     // utility function
     void DFSVisit(Tensor::Node* curr, std::unordered_set<Node*>& visited,
                   std::stack<Node*>& stack);
+    Tensor mul_nograd(const Tensor& t) const; /* Hadamard product */
 
    public:
     // Empty/undefined tensor (no storage). Assign into it later.
@@ -113,8 +114,7 @@ class Tensor {
     float sum() const;  // returns the sum of all elements of a tensor
     Tensor add(const Tensor&) const;
     Tensor sub(const Tensor&) const;
-    Tensor mul(const Tensor&) const;          /* Hadamard product */
-    Tensor mul_nograd(const Tensor& t) const; /* Hadamard product */
+    Tensor mul(const Tensor&) const; /* Hadamard product */
 
     std::shared_ptr<Node> node_;
 };

@@ -1,28 +1,35 @@
-#include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <print>
 
 #include "../include/tensor/tensor.hpp"
 
 using namespace tn;
 
-// Max relative error between the two, tracked into `worst`.
-static float check(const char* name, int i, int j, float analytic, float numeric,
-                   float& worst) {
-    float rel_error =
-        std::abs(numeric - analytic) / (std::abs(numeric) + std::abs(analytic) + 1e-8f);
-    worst = std::max(worst, rel_error);
-    std::print("{}[{}, {}]={} dL={} rel_err={}\n", name, i, j, analytic, numeric,
-               rel_error);
-    return rel_error;
+// Combined absolute/relative tolerance, the criterion PyTorch's gradcheck uses:
+//   pass if |numeric - analytic| <= atol + rtol * |analytic|
+// Pure relative error is fragile near zero — a fixed float noise floor divided
+// by a shrinking gradient blows up. atol absorbs that floor; rtol still catches
+// genuinely wrong large gradients. Counts failures into `failures`.
+static constexpr float kAtol = 1e-3f;
+static constexpr float kRtol = 1e-2f;
+
+static void check(const char* name, int i, int j, float analytic, float numeric,
+                  int& failures) {
+    float abs_err = std::abs(numeric - analytic);
+    float thresh = kAtol + kRtol * std::abs(analytic);
+    bool pass = abs_err <= thresh;
+    if (!pass) failures++;
+    std::print("{}[{}, {}]={} dL={} abs_err={} thresh={} {}\n", name, i, j, analytic,
+               numeric, abs_err, thresh, pass ? "ok" : "FAIL");
 }
 
 // File compares the analytic gradient with the numerical gradient
 int main() {
-    float e = 1e-4;
-    const float tol = 1e-2f;  // loose: central difference over float storage
-    float worst = 0.0f;
+    // Large step: every op here makes L linear in the perturbed input, so the
+    // central difference has zero truncation error and a big e just cuts the
+    // float cancellation noise. Revisit once nonlinear ops (ReLU/softmax) land.
+    float e = 1e-2;
+    int failures = 0;
 
     Tensor A = Tensor::randn(3, 4);
     Tensor B = Tensor::randn(4, 2);
@@ -42,7 +49,7 @@ int main() {
             float L_minus = (A_minus.matmul(B)).sum();
             float numeric = (L_plus - L_minus) / (2 * e);
 
-            check("dA", i, j, A.grad_at(i, j), numeric, worst);
+            check("dA", i, j, A.grad_at(i, j), numeric, failures);
         }
     }
     A.zero_grad();
@@ -57,7 +64,7 @@ int main() {
             float L_minus = (A.matmul(B_minus)).sum();
             float numeric = (L_plus - L_minus) / (2 * e);
 
-            check("dB", i, j, B.grad_at(i, j), numeric, worst);
+            check("dB", i, j, B.grad_at(i, j), numeric, failures);
         }
     }
     B.zero_grad();
@@ -76,7 +83,7 @@ int main() {
             float L_minus = (A_minus.add(C)).sum();
             float numeric = (L_plus - L_minus) / (2 * e);
 
-            check("dA", i, j, A.grad_at(i, j), numeric, worst);
+            check("dA", i, j, A.grad_at(i, j), numeric, failures);
         }
     }
     A.zero_grad();
@@ -87,11 +94,11 @@ int main() {
             Tensor C_minus = C.clone();
             C_plus.set(i, j, C.at(i, j) + e);
             C_minus.set(i, j, C.at(i, j) - e);
-            float L_plus = (C_plus.add(A)).sum();
-            float L_minus = (C_minus.add(A)).sum();
+            float L_plus = (A.add(C_plus)).sum();
+            float L_minus = (A.add(C_minus)).sum();
             float numeric = (L_plus - L_minus) / (2 * e);
 
-            check("dC", i, j, C.grad_at(i, j), numeric, worst);
+            check("dC", i, j, C.grad_at(i, j), numeric, failures);
         }
     }
     C.zero_grad();
@@ -110,10 +117,25 @@ int main() {
             float L_minus = (A_minus.sub(C)).sum();
             float numeric = (L_plus - L_minus) / (2 * e);
 
-            check("dA", i, j, A.grad_at(i, j), numeric, worst);
+            check("dA", i, j, A.grad_at(i, j), numeric, failures);
         }
     }
     A.zero_grad();
+
+    for (int i = 0; i < C.rows(); i++) {
+        for (int j = 0; j < C.cols(); j++) {
+            Tensor C_plus = C.clone();
+            Tensor C_minus = C.clone();
+            C_plus.set(i, j, C.at(i, j) + e);
+            C_minus.set(i, j, C.at(i, j) - e);
+            float L_plus = (A.sub(C_plus)).sum();
+            float L_minus = (A.sub(C_minus)).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dC", i, j, C.grad_at(i, j), numeric, failures);
+        }
+    }
+    C.zero_grad();
 
     // mul (Hadamard)
     Tensor test4 = A.mul(C);
@@ -129,15 +151,32 @@ int main() {
             float L_minus = (A_minus.mul(C)).sum();
             float numeric = (L_plus - L_minus) / (2 * e);
 
-            check("dA", i, j, A.grad_at(i, j), numeric, worst);
+            check("dA", i, j, A.grad_at(i, j), numeric, failures);
         }
     }
     A.zero_grad();
 
-    if (worst > tol) {
-        std::print("FAIL: max relative error {} exceeds tolerance {}\n", worst, tol);
+    for (int i = 0; i < C.rows(); i++) {
+        for (int j = 0; j < C.cols(); j++) {
+            Tensor C_plus = C.clone();
+            Tensor C_minus = C.clone();
+            C_plus.set(i, j, C.at(i, j) + e);
+            C_minus.set(i, j, C.at(i, j) - e);
+            float L_plus = (A.mul(C_plus)).sum();
+            float L_minus = (A.mul(C_minus)).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dC", i, j, C.grad_at(i, j), numeric, failures);
+        }
+    }
+    C.zero_grad();
+
+    if (failures > 0) {
+        std::print("FAIL: {} gradient element(s) exceeded tolerance (atol={}, rtol={})\n",
+                   failures, kAtol, kRtol);
         return 1;
     }
-    std::print("PASS: max relative error {} within tolerance {}\n", worst, tol);
+    std::print("PASS: all gradient elements within tolerance (atol={}, rtol={})\n", kAtol,
+               kRtol);
     return 0;
 }
