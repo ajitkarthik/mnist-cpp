@@ -4,6 +4,7 @@
 #include <assert.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <memory>
 #include <random>
@@ -13,7 +14,6 @@
 
 namespace tn {
 
-// TODO: implement declarations from tensor.hpp
 Tensor::Tensor(int rows, int cols, float fill) {
     node_ = std::make_shared<Node>(rows, cols, fill);
 }
@@ -74,6 +74,126 @@ Tensor::Tensor(int rows, int cols, std::vector<float> data) {
 
 Tensor::Tensor(Node& n) { node_ = std::make_shared<Node>(n); }
 
+Tensor Tensor::add_bias(
+    const Tensor& bias) const {  // this: (rows, cols), bias: (1, cols)
+    assert(bias.cols() == cols() && bias.rows() == 1);
+    Tensor output(rows(), cols());
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
+            output.set(i, j, at(i, j) + bias.at(0, j));
+        }
+    }
+
+    // Save away for the backward pass
+    auto a = node_;
+    auto b = bias.node_;
+    /* Note: here we save the raw pointer otherwise we get a circular ref with
+     * shared pointers */
+    auto out = output.node_.get();
+    output.node_->backward = [a, b, out]() {
+        Tensor dOut = Tensor(out->rows, out->cols, out->grad);
+        for (int i = 0; i < dOut.rows(); i++)
+            for (int j = 0; j < dOut.cols(); j++)
+                a->grad[i * a->row_stride + j * a->col_stride] += dOut.at(i, j);
+
+        for (int i = 0; i < dOut.rows(); i++) {
+            for (int j = 0; j < dOut.cols(); j++) {
+                b->grad[0 * a->row_stride + j * a->col_stride] += dOut.at(i, j);
+            }
+        }
+    };
+    output.node_->prev.push_back(a);
+    output.node_->prev.push_back(b);
+    return output;
+}
+
+Tensor Tensor::relu() const {
+    Tensor output = Tensor(rows(), cols());
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
+            if (at(i, j) > 0.0f)
+                output.set(i, j, at(i, j));
+            else
+                output.set(i, j, 0.0f);
+        }
+    }
+
+    auto a = node_;
+    auto out = output.node_.get();
+    output.node_->backward = [a, out]() {
+        Tensor dOut = Tensor(out->rows, out->cols, out->grad);
+        for (int i = 0; i < dOut.rows(); i++) {
+            for (int j = 0; j < dOut.cols(); j++) {
+                if (a->data[i * a->row_stride + j * a->col_stride] > 0.0f)
+                    a->grad[i * a->row_stride + j * a->col_stride] += dOut.at(i, j);
+            }
+        }
+    };
+    output.node_->prev.push_back(a);
+    return output;
+}
+
+// Fused cross-entropy loss
+// input tensor: logits
+// output: loss (Tensor(1,1))
+Tensor Tensor::cross_entropy_loss(int correct_class, int num_classes) const {
+    // Typically we need a column vector as the tensor
+    assert(cols() == 1);
+    Tensor output = Tensor(1, 1);
+    float scalar_loss = 0.0f;
+
+    // compute probabilities
+    Tensor probs = this->softmax();
+
+    // one hot encode the label
+    Tensor one_hot = Tensor(num_classes, 1);
+    one_hot.set(correct_class, 0, 1.0f);
+
+    // nagative log liklehood
+    for (int i = 0; i < rows(); i++) {
+        scalar_loss += -one_hot.at(i, 0) * std::log(probs.at(i, 0));
+    }
+    output.set(0, 0, scalar_loss);
+
+    auto a = node_;
+    auto b = probs.node_;
+    output.node_->backward = [a, b, correct_class]() {
+        for (int i = 0; i < a->rows; i++) {
+            if (i == correct_class)
+                a->grad[i * a->row_stride + 0 * a->col_stride] +=
+                    b->data[i * b->row_stride + 0 * b->col_stride] - 1;
+            else
+                a->grad[i * a->row_stride + 0 * a->col_stride] +=
+                    b->data[i * b->row_stride + 0 * b->col_stride];
+        }
+    };
+
+    output.node_->prev.push_back(a);
+    return output;
+}
+
+Tensor Tensor::softmax() const {
+    Tensor output = Tensor(rows(), cols());
+    float sum = 0.0f;
+
+    // First find the max of the tensor values and then subtract the max from each value
+    // so that the exp does not blow up
+    float max = std::ranges::max(this->node_->data);
+
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
+            sum += std::exp(at(i, j) - max);
+        }
+    }
+
+    for (int i = 0; i < rows(); i++) {
+        for (int j = 0; j < cols(); j++) {
+            output.set(i, j, std::exp(at(i, j) - max) / sum);
+        }
+    }
+    return output;
+}
+
 Tensor Tensor::matmul(const Tensor& t) const { /* C = A @ B */
     assert(cols() == t.rows());
     // output tensor is of shape: node_->rows, t.node_->cols
@@ -98,9 +218,9 @@ Tensor Tensor::matmul(const Tensor& t) const { /* C = A @ B */
 
     output.node_->backward = [a, b, out]() {
         // compute local gradient
-        Tensor dC = Tensor(out->rows, out->cols, out->grad);
-        Tensor dA = dC.matmul(Tensor(*b).transpose()); /* dA = dC @ B.T */
-        Tensor dB = Tensor(*a).transpose().matmul(dC); /* dB = A.T @ dC */
+        Tensor dOut = Tensor(out->rows, out->cols, out->grad);
+        Tensor dA = dOut.matmul(Tensor(*b).transpose()); /* dA = dOut @ B.T */
+        Tensor dB = Tensor(*a).transpose().matmul(dOut); /* dB = A.T @ dOut */
 
         // flow the gradients backward
         for (int i = 0; i < dA.node_->rows; i++)
@@ -131,15 +251,15 @@ Tensor Tensor::add(const Tensor& t) const { /* C = A + B */
     auto b = t.node_;
     auto out = output.node_.get();
     output.node_->backward = [a, b, out]() {
-        Tensor dC = Tensor(out->rows, out->cols, out->grad);
+        Tensor dOut = Tensor(out->rows, out->cols, out->grad);
 
-        for (int i = 0; i < dC.rows(); i++)
-            for (int j = 0; j < dC.cols(); j++)
-                a->grad[i * a->row_stride + j * a->col_stride] += dC.at(i, j);
+        for (int i = 0; i < dOut.rows(); i++)
+            for (int j = 0; j < dOut.cols(); j++)
+                a->grad[i * a->row_stride + j * a->col_stride] += dOut.at(i, j);
 
-        for (int i = 0; i < dC.node_->rows; i++)
-            for (int j = 0; j < dC.node_->cols; j++)
-                b->grad[i * b->row_stride + j * b->col_stride] += dC.at(i, j);
+        for (int i = 0; i < dOut.node_->rows; i++)
+            for (int j = 0; j < dOut.node_->cols; j++)
+                b->grad[i * b->row_stride + j * b->col_stride] += dOut.at(i, j);
     };
     output.node_->prev.push_back(a);
     output.node_->prev.push_back(b);
@@ -160,15 +280,15 @@ Tensor Tensor::sub(const Tensor& t) const { /* C = A - B */
     auto b = t.node_;
     auto out = output.node_.get();
     output.node_->backward = [a, b, out]() {
-        Tensor dC = Tensor(out->rows, out->cols, out->grad);
+        Tensor dOut = Tensor(out->rows, out->cols, out->grad);
 
-        for (int i = 0; i < dC.rows(); i++)
-            for (int j = 0; j < dC.cols(); j++)
-                a->grad[i * a->row_stride + j * a->col_stride] += dC.at(i, j);
+        for (int i = 0; i < dOut.rows(); i++)
+            for (int j = 0; j < dOut.cols(); j++)
+                a->grad[i * a->row_stride + j * a->col_stride] += dOut.at(i, j);
 
-        for (int i = 0; i < dC.node_->rows; i++)
-            for (int j = 0; j < dC.node_->cols; j++)
-                b->grad[i * b->row_stride + j * b->col_stride] += -dC.at(i, j);
+        for (int i = 0; i < dOut.node_->rows; i++)
+            for (int j = 0; j < dOut.node_->cols; j++)
+                b->grad[i * b->row_stride + j * b->col_stride] += -dOut.at(i, j);
     };
     output.node_->prev.push_back(a);
     output.node_->prev.push_back(b);

@@ -1,4 +1,5 @@
 #include <cmath>
+#include <iostream>
 #include <print>
 
 #include "../include/tensor/tensor.hpp"
@@ -34,8 +35,11 @@ int main() {
     Tensor A = Tensor::randn(3, 4);
     Tensor B = Tensor::randn(4, 2);
     Tensor C = Tensor::randn(3, 4);
+    Tensor D = Tensor::randn(1, 4);
+    Tensor logits = Tensor::randn(10, 1);
 
     // matmul
+    std::cout << "===MATMUL===\n";
     Tensor test1 = A.matmul(B);
     test1.backward();
 
@@ -70,6 +74,7 @@ int main() {
     B.zero_grad();
 
     // add
+    std::cout << "===ADD===\n";
     Tensor test2 = A.add(C);
     test2.backward();
 
@@ -104,6 +109,7 @@ int main() {
     C.zero_grad();
 
     // sub
+    std::cout << "===SUB===\n";
     Tensor test3 = A.sub(C);
     test3.backward();
 
@@ -138,6 +144,7 @@ int main() {
     C.zero_grad();
 
     // mul (Hadamard)
+    std::cout << "===HADAMARD PRODUCT===\n";
     Tensor test4 = A.mul(C);
     test4.backward();
 
@@ -170,6 +177,83 @@ int main() {
         }
     }
     C.zero_grad();
+
+    // bias addition
+    std::cout << "===BIAS ADD===\n";
+    Tensor test5 = A.add_bias(D);
+    test5.backward();
+
+    for (int i = 0; i < A.rows(); i++) {
+        for (int j = 0; j < A.cols(); j++) {
+            Tensor A_plus = A.clone();
+            Tensor A_minus = A.clone();
+            A_plus.set(i, j, A.at(i, j) + e);
+            A_minus.set(i, j, A.at(i, j) - e);
+            float L_plus = (A_plus.add_bias(D)).sum();
+            float L_minus = (A_minus.add_bias(D)).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dA", i, j, A.grad_at(i, j), numeric, failures);
+        }
+    }
+    A.zero_grad();
+
+    for (int i = 0; i < D.rows(); i++) {
+        for (int j = 0; j < D.cols(); j++) {
+            Tensor D_plus = D.clone();
+            Tensor D_minus = D.clone();
+            D_plus.set(i, j, D.at(i, j) + e);
+            D_minus.set(i, j, D.at(i, j) - e);
+            float L_plus = (A.add_bias(D_plus)).sum();
+            float L_minus = (A.add_bias(D_minus)).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dD", i, j, D.grad_at(i, j), numeric, failures);
+        }
+    }
+    D.zero_grad();
+
+    // ReLU
+    std::cout << "===RELU===\n";
+    Tensor test6 = A.relu();
+    test6.backward();
+
+    for (int i = 0; i < A.rows(); i++) {
+        for (int j = 0; j < A.cols(); j++) {
+            if (std::abs(A.at(i, j)) < e)  // in other words, if A + e > 0 and A - e < 0
+                continue;  // straddles the ReLU knee where derivative is undefined
+            Tensor A_plus = A.clone();
+            Tensor A_minus = A.clone();
+            A_plus.set(i, j, A.at(i, j) + e);
+            A_minus.set(i, j, A.at(i, j) - e);
+            float L_plus = (A_plus.relu()).sum();
+            float L_minus = (A_minus.relu()).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dA", i, j, A.grad_at(i, j), numeric, failures);
+        }
+    }
+    A.zero_grad();
+
+    // cross-entropy loss
+    std::cout << "===Cross Entropy Loss===\n";
+    Tensor loss = logits.cross_entropy_loss(8, 10);
+    loss.backward();
+
+    for (int i = 0; i < logits.rows(); i++) {
+        for (int j = 0; j < logits.cols(); j++) {
+            Tensor logits_plus = logits.clone();
+            Tensor logits_minus = logits.clone();
+            logits_plus.set(i, j, logits.at(i, j) + e);
+            logits_minus.set(i, j, logits.at(i, j) - e);
+            float L_plus = (logits_plus.cross_entropy_loss(8, 10)).sum();
+            float L_minus = (logits_minus.cross_entropy_loss(8, 10)).sum();
+            float numeric = (L_plus - L_minus) / (2 * e);
+
+            check("dlogits", i, j, logits.grad_at(i, j), numeric, failures);
+        }
+    }
+    logits.zero_grad();
 
     if (failures > 0) {
         std::print("FAIL: {} gradient element(s) exceeded tolerance (atol={}, rtol={})\n",
