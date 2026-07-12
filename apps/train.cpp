@@ -71,14 +71,6 @@ int main() {
     std::cout << " done" << std::endl;
     std::cout << "Number of images: " << images.size() << std::endl;
 
-    std::cout << "Normalizing pixel values ...";
-    // normalize the images to 0-1
-    for (auto& image : images) {
-        for (auto& pixel : image) {
-            pixel = static_cast<uint8_t>(pixel / 255.0);
-        }
-    }
-    std::cout << " done" << std::endl;
     file.close();
 
     std::cout << "Reading label file ...";
