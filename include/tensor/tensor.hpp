@@ -118,7 +118,7 @@ class Tensor {
     Tensor mul(const Tensor&) const;            /* Hadamard product */
     Tensor add_bias(const Tensor& bias) const;  // this: (rows, cols), bias: (1, cols)
     Tensor relu() const;
-    Tensor cross_entropy_loss(int correct_class, int num_classes) const;
+    Tensor cross_entropy_loss(Tensor labels, int num_classes) const;
 
     std::shared_ptr<Node> node_;
 };

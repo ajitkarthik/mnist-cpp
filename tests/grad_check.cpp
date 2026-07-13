@@ -36,7 +36,7 @@ int main() {
     Tensor B = Tensor::randn(4, 2);
     Tensor C = Tensor::randn(3, 4);
     Tensor D = Tensor::randn(1, 4);
-    Tensor logits = Tensor::randn(10, 1);
+    Tensor logits = Tensor::randn(32, 10);  // batchsize=32, features=10
 
     // matmul
     std::cout << "===MATMUL===\n";
@@ -237,7 +237,13 @@ int main() {
 
     // cross-entropy loss
     std::cout << "===Cross Entropy Loss===\n";
-    Tensor loss = logits.cross_entropy_loss(8, 10);
+    Tensor labels(32, 1);
+    // initialize the labels to some number between 0 and 9
+    for (int i = 0; i < labels.rows(); i++) {
+        labels.set(i, 0, i % 10);
+    }
+
+    Tensor loss = logits.cross_entropy_loss(labels, 10);
     loss.backward();
 
     for (int i = 0; i < logits.rows(); i++) {
@@ -246,8 +252,8 @@ int main() {
             Tensor logits_minus = logits.clone();
             logits_plus.set(i, j, logits.at(i, j) + e);
             logits_minus.set(i, j, logits.at(i, j) - e);
-            float L_plus = (logits_plus.cross_entropy_loss(8, 10)).sum();
-            float L_minus = (logits_minus.cross_entropy_loss(8, 10)).sum();
+            float L_plus = (logits_plus.cross_entropy_loss(labels, 10)).sum();
+            float L_minus = (logits_minus.cross_entropy_loss(labels, 10)).sum();
             float numeric = (L_plus - L_minus) / (2 * e);
 
             check("dlogits", i, j, logits.grad_at(i, j), numeric, failures);

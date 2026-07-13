@@ -27,7 +27,7 @@ int main() {
     // Big endian format
     // Image Files(idx3 - ubyte)
     //   The first 16 bytes contain the file metadata
-    //   Bytes 0–3 : Magic ber(2051)
+    //   Bytes 0–3 : Magic number(2051)
     //   Bytes 4–7 : number of images
     //   Bytes 8–11: number of rows(28)
     //   Bytes 12–15 : number of columns(28)

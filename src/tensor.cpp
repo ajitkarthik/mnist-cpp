@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <random>
 #include <stack>
@@ -134,37 +135,44 @@ Tensor Tensor::relu() const {
 }
 
 // Fused cross-entropy loss
-// input tensor: logits
+// input: logits: Tensor(batchsize, num_classes), labels: Tensor(batchsize, 1)
 // output: loss (Tensor(1,1))
-Tensor Tensor::cross_entropy_loss(int correct_class, int num_classes) const {
-    // Typically we need a column vector as the tensor
-    assert(cols() == 1);
+Tensor Tensor::cross_entropy_loss(Tensor labels, int num_classes) const {
+    assert(labels.cols() == 1);
+    assert(cols() == num_classes);
+    assert(rows() == labels.rows());
     Tensor output = Tensor(1, 1);
     float scalar_loss = 0.0f;
 
     // compute probabilities
     Tensor probs = this->softmax();
 
-    // one hot encode the label
-    Tensor one_hot = Tensor(num_classes, 1);
-    one_hot.set(correct_class, 0, 1.0f);
-
-    // nagative log liklehood
-    for (int i = 0; i < rows(); i++) {
-        scalar_loss += -one_hot.at(i, 0) * std::log(probs.at(i, 0));
+    // negative log liklehood
+    for (int row = 0; row < rows(); row++) {
+        for (int col = 0; col < cols(); col++) {
+            if (col == labels.at(row, 0)) {
+                scalar_loss += -std::log(probs.at(row, col));
+            }
+        }
     }
-    output.set(0, 0, scalar_loss);
 
-    auto a = node_;
-    auto b = probs.node_;
-    output.node_->backward = [a, b, correct_class]() {
+    output.set(0, 0, scalar_loss / rows());
+
+    auto a = node_;         // logits
+    auto b = probs.node_;   // probs
+    auto c = labels.node_;  // labels
+    output.node_->backward = [a, b, c]() {
         for (int i = 0; i < a->rows; i++) {
-            if (i == correct_class)
-                a->grad[i * a->row_stride + 0 * a->col_stride] +=
-                    b->data[i * b->row_stride + 0 * b->col_stride] - 1;
-            else
-                a->grad[i * a->row_stride + 0 * a->col_stride] +=
-                    b->data[i * b->row_stride + 0 * b->col_stride];
+            for (int j = 0; j < a->cols; j++) {
+                if (j == (c->data[i * c->row_stride]))
+                    // Divide by the batchsize here, since scalar loss computed is
+                    // across the entire batch
+                    a->grad[i * a->row_stride + j * a->col_stride] +=
+                        (b->data[i * b->row_stride + j * b->col_stride] - 1) / a->rows;
+                else
+                    a->grad[i * a->row_stride + j * a->col_stride] +=
+                        b->data[i * b->row_stride + j * b->col_stride] / a->rows;
+            }
         }
     };
 
@@ -172,23 +180,24 @@ Tensor Tensor::cross_entropy_loss(int correct_class, int num_classes) const {
     return output;
 }
 
+// input: Tensor(batchsize, logits)
+// output: Tensor(batchsize, probabilities)
 Tensor Tensor::softmax() const {
     Tensor output = Tensor(rows(), cols());
-    float sum = 0.0f;
 
-    // First find the max of the tensor values and then subtract the max from each value
-    // so that the exp does not blow up
-    float max = std::ranges::max(this->node_->data);
-
-    for (int i = 0; i < rows(); i++) {
-        for (int j = 0; j < cols(); j++) {
-            sum += std::exp(at(i, j) - max);
+    // First find the max of the tensor values and then subtract the max from each
+    // value so that the exp does not blow up
+    for (int row = 0; row < rows(); row++) {
+        float row_max = std::numeric_limits<float>::lowest();
+        float row_sum = 0.0f;
+        for (int col = 0; col < cols(); col++) {
+            row_max = (at(row, col) > row_max ? at(row, col) : row_max);
         }
-    }
-
-    for (int i = 0; i < rows(); i++) {
-        for (int j = 0; j < cols(); j++) {
-            output.set(i, j, std::exp(at(i, j) - max) / sum);
+        for (int col = 0; col < cols(); col++) {
+            row_sum += std::exp(at(row, col) - row_max);
+        }
+        for (int col = 0; col < cols(); col++) {
+            output.set(row, col, std::exp(at(row, col) - row_max) / row_sum);
         }
     }
     return output;
