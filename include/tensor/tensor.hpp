@@ -62,8 +62,7 @@ class Tensor {
     };
 
     // utility function
-    void DFSVisit(Tensor::Node* curr, std::unordered_set<Node*>& visited,
-                  std::stack<Node*>& stack);
+    void DFSVisit(Tensor::Node* curr, std::unordered_set<Node*>& visited, std::stack<Node*>& stack);
     Tensor mul_nograd(const Tensor& t) const; /* Hadamard product */
 
    public:
@@ -82,29 +81,33 @@ class Tensor {
     // Given a node, get it's corresponding Tensor handle
     Tensor(Node& n);
 
-    // set element [i, j]
-    void set(int i, int j, float val);
-
-    // return element [i, j]
-    float at(int i, int j) const;
-
-    // return grad at [i, j]
-    float grad_at(int i, int j) const;
-
-    // zero out the grad
-    void zero_grad();
-
-    // flatten a Tensor to a vector<float>
-    std::vector<float> flatten() const;
-
     static Tensor randn(int rows, int cols);
     static Tensor zeros(int rows, int cols);
 
+    // misc helpers
+    // set element [i, j]
+    void set(int i, int j, float val);
+    // return element [i, j]
+    float at(int i, int j) const;
+    // return grad at [i, j]
+    float grad_at(int i, int j) const;
+    // zero out the grad
+    void zero_grad();
+    // number of rows and cols
     int rows() const;
     int cols() const;
+    // used for the test pass
+    Tensor softmax() const;
+    // find index of max element in given row of tensor
+    int max_idx(int row);
+    // returns the value of a tensor. Makes sense only for a tensor with 1 value
+    float val() const;
+    // flatten a Tensor to a vector<float>
+    std::vector<float> flatten() const;
 
     // backward pass
     void backward(void);
+    void adjust_weights(float lr);
 
     // Tensor ops
     Tensor transpose() const;
@@ -117,8 +120,7 @@ class Tensor {
     Tensor mul(const Tensor&) const;            /* Hadamard product */
     Tensor add_bias(const Tensor& bias) const;  // this: (rows, cols), bias: (1, cols)
     Tensor relu() const;
-    Tensor cross_entropy_loss(Tensor labels, int num_classes) const;
-    Tensor softmax() const;
+    Tensor fused_cross_entropy_loss(Tensor labels) const;
 
     std::shared_ptr<Node> node_;
 };

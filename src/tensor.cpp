@@ -4,6 +4,7 @@
 #include <assert.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -15,9 +16,7 @@
 
 namespace tn {
 
-Tensor::Tensor(int rows, int cols, float fill) {
-    node_ = std::make_shared<Node>(rows, cols, fill);
-}
+Tensor::Tensor(int rows, int cols, float fill) { node_ = std::make_shared<Node>(rows, cols, fill); }
 
 Tensor::Tensor(int rows, int cols) { node_ = std::make_shared<Node>(rows, cols, 0.0f); }
 
@@ -45,6 +44,11 @@ int Tensor::rows() const { return node_->rows; }
 
 int Tensor::cols() const { return node_->cols; }
 
+float Tensor::val() const {
+    assert(rows() == 1 && cols() == 1);
+    return at(0, 0);
+}
+
 float Tensor::sum() const {
     float sum = 0.0f;
     for (int i = 0; i < rows(); i++) {
@@ -53,6 +57,19 @@ float Tensor::sum() const {
         }
     }
     return sum;
+}
+
+int Tensor::max_idx(int row) {
+    assert(row >= 0 && row < rows());
+    float max = FLT_MIN;
+    int max_idx = 0;
+    for (int i = 0; i < cols(); i++) {
+        if (at(row, i) > max) {
+            max = at(row, i);
+            max_idx = i;
+        }
+    }
+    return max_idx;
 }
 
 Tensor Tensor::zeros(int rows, int cols) { return Tensor(rows, cols); }
@@ -75,8 +92,7 @@ Tensor::Tensor(int rows, int cols, std::vector<float> data) {
 
 Tensor::Tensor(Node& n) { node_ = std::make_shared<Node>(n); }
 
-Tensor Tensor::add_bias(
-    const Tensor& bias) const {  // this: (rows, cols), bias: (1, cols)
+Tensor Tensor::add_bias(const Tensor& bias) const {  // this: (rows, cols), bias: (1, cols)
     assert(bias.cols() == cols() && bias.rows() == 1);
     Tensor output(rows(), cols());
     for (int i = 0; i < rows(); i++) {
@@ -137,9 +153,8 @@ Tensor Tensor::relu() const {
 // Fused cross-entropy loss
 // input: logits: Tensor(batchsize, num_classes), labels: Tensor(batchsize, 1)
 // output: loss (Tensor(1,1))
-Tensor Tensor::cross_entropy_loss(Tensor labels, int num_classes) const {
+Tensor Tensor::fused_cross_entropy_loss(Tensor labels) const {
     assert(labels.cols() == 1);
-    assert(cols() == num_classes);
     assert(rows() == labels.rows());
     Tensor output = Tensor(1, 1);
     float scalar_loss = 0.0f;
@@ -379,9 +394,17 @@ void Tensor::backward(void) {
 
 Tensor Tensor::transpose() const {
     Tensor t;
-    t.node_ = std::make_shared<Node>(node_->cols, node_->rows, node_->col_stride,
-                                     node_->row_stride, node_->data);
+    t.node_ = std::make_shared<Node>(node_->cols, node_->rows, node_->col_stride, node_->row_stride,
+                                     node_->data);
     return t;
+}
+
+void Tensor::adjust_weights(float lr) {
+    assert(node_->data.size() == node_->grad.size());
+    // Element-wise subtraction
+    for (size_t i = 0; i < node_->data.size(); ++i) {
+        node_->data[i] -= lr * node_->grad[i];
+    }
 }
 
 std::vector<float> Tensor::flatten() const {

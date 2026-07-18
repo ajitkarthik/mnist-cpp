@@ -1,4 +1,5 @@
 data/
 build/
+build-release/
 compile_commands.json
 .vscode/

@@ -14,14 +14,13 @@ using namespace tn;
 static constexpr float kAtol = 1e-3f;
 static constexpr float kRtol = 1e-2f;
 
-static void check(const char* name, int i, int j, float analytic, float numeric,
-                  int& failures) {
+static void check(const char* name, int i, int j, float analytic, float numeric, int& failures) {
     float abs_err = std::abs(numeric - analytic);
     float thresh = kAtol + kRtol * std::abs(analytic);
     bool pass = abs_err <= thresh;
     if (!pass) failures++;
-    std::print("{}[{}, {}]={} dL={} abs_err={} thresh={} {}\n", name, i, j, analytic,
-               numeric, abs_err, thresh, pass ? "ok" : "FAIL");
+    std::print("{}[{}, {}]={} dL={} abs_err={} thresh={} {}\n", name, i, j, analytic, numeric,
+               abs_err, thresh, pass ? "ok" : "FAIL");
 }
 
 // File compares the analytic gradient with the numerical gradient
@@ -221,7 +220,7 @@ int main() {
     for (int i = 0; i < A.rows(); i++) {
         for (int j = 0; j < A.cols(); j++) {
             if (std::abs(A.at(i, j)) < e)  // in other words, if A + e > 0 and A - e < 0
-                continue;  // straddles the ReLU knee where derivative is undefined
+                continue;                  // straddles the ReLU knee where derivative is undefined
             Tensor A_plus = A.clone();
             Tensor A_minus = A.clone();
             A_plus.set(i, j, A.at(i, j) + e);
@@ -243,7 +242,7 @@ int main() {
         labels.set(i, 0, i % 10);
     }
 
-    Tensor loss = logits.cross_entropy_loss(labels, 10);
+    Tensor loss = logits.fused_cross_entropy_loss(labels);
     loss.backward();
 
     for (int i = 0; i < logits.rows(); i++) {
@@ -252,8 +251,8 @@ int main() {
             Tensor logits_minus = logits.clone();
             logits_plus.set(i, j, logits.at(i, j) + e);
             logits_minus.set(i, j, logits.at(i, j) - e);
-            float L_plus = (logits_plus.cross_entropy_loss(labels, 10)).sum();
-            float L_minus = (logits_minus.cross_entropy_loss(labels, 10)).sum();
+            float L_plus = (logits_plus.fused_cross_entropy_loss(labels)).sum();
+            float L_minus = (logits_minus.fused_cross_entropy_loss(labels)).sum();
             float numeric = (L_plus - L_minus) / (2 * e);
 
             check("dlogits", i, j, logits.grad_at(i, j), numeric, failures);
@@ -262,11 +261,10 @@ int main() {
     logits.zero_grad();
 
     if (failures > 0) {
-        std::print("FAIL: {} gradient element(s) exceeded tolerance (atol={}, rtol={})\n",
-                   failures, kAtol, kRtol);
+        std::print("FAIL: {} gradient element(s) exceeded tolerance (atol={}, rtol={})\n", failures,
+                   kAtol, kRtol);
         return 1;
     }
-    std::print("PASS: all gradient elements within tolerance (atol={}, rtol={})\n", kAtol,
-               kRtol);
+    std::print("PASS: all gradient elements within tolerance (atol={}, rtol={})\n", kAtol, kRtol);
     return 0;
 }
