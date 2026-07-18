@@ -1,9 +1,12 @@
 #include <assert.h>
+#include <sys/types.h>
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <random>
 #include <string_view>
 #include <tensor/tensor.hpp>
 
@@ -94,6 +97,60 @@ int main() {
     std::cout << "Number of labels: " << labels.size() << std::endl;
 
     file.close();
+
+    // MLP
+    constexpr int N_HIDDEN = 128;
+    Tensor W1 = Tensor::randn(rows * cols, N_HIDDEN);
+    Tensor b1 = Tensor::zeros(1, N_HIDDEN);
+    Tensor W2 = Tensor::randn(N_HIDDEN, 10);
+    Tensor b2 = Tensor::zeros(1, 10);
+
+    // Kaiming init for W1 (since it feeds RELU)
+    for (uint32_t i = 0; i < rows; i++) {
+        for (uint32_t j = 0; j < cols; j++) {
+            W1.set(i, j, W1.at(i, j) * sqrt(2 / (rows * cols)));
+        }
+    }
+
+    // Xavier/Glorot init for W2 (since it feeds softmax)
+    for (uint32_t i = 0; i < N_HIDDEN; i++) {
+        for (uint32_t j = 0; j < 10; j++) {
+            W2.set(i, j, W2.at(i, j) * (1.0 / (N_HIDDEN)));
+        }
+    }
+
+    // Training loop
+    constexpr int TRAINING_ITERATIONS = 1;
+    constexpr int BATCHSIZE = 32;
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::uniform_int_distribution<int> distrib(0, static_cast<int>(images.size()) - 1);
+    const int features = static_cast<int>(rows * cols);  // 784
+
+    for (int i = 0; i < TRAINING_ITERATIONS; i++) {
+        // Assemble a mini-batch of BATCHSIZE random samples.
+        Tensor X(BATCHSIZE, features);  // (BATCHSIZE, 784), pixels normalized to [0, 1]
+        Tensor y(BATCHSIZE, 1);         // matching labels for the batch
+
+        for (int b = 0; b < BATCHSIZE; b++) {
+            int idx = distrib(g);
+            const std::vector<uint8_t>& img = images[idx];
+            for (int p = 0; p < features; p++) {
+                X.set(b, p, img[p] / 255.0f);
+            }
+            y.set(b, 0, static_cast<float>(labels[idx]));
+        }
+
+        Tensor loss = X.matmul(W1)
+                          .add_bias(b1)
+                          .relu()
+                          .matmul(W2)
+                          .add_bias(b2)
+                          .softmax()
+                          .cross_entropy_loss(y, 10);
+
+        std::cout << loss << std::endl;
+    }
 
     return 0;
 }

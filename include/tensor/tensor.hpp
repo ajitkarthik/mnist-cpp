@@ -65,7 +65,6 @@ class Tensor {
     void DFSVisit(Tensor::Node* curr, std::unordered_set<Node*>& visited,
                   std::stack<Node*>& stack);
     Tensor mul_nograd(const Tensor& t) const; /* Hadamard product */
-    Tensor softmax() const;
 
    public:
     // Empty/undefined tensor (no storage). Assign into it later.
@@ -119,6 +118,7 @@ class Tensor {
     Tensor add_bias(const Tensor& bias) const;  // this: (rows, cols), bias: (1, cols)
     Tensor relu() const;
     Tensor cross_entropy_loss(Tensor labels, int num_classes) const;
+    Tensor softmax() const;
 
     std::shared_ptr<Node> node_;
 };
