@@ -6,43 +6,43 @@ digits. No ML dependencies — the point is to build the autograd engine by hand
 
 ## Results
 
-A 784 → 128 (ReLU) → 10 (softmax) MLP trained with plain SGD reaches **97.97%
-test accuracy** (9405 / 10000 correct) after 20,000 mini-batch iterations
+A 784 → 128 (ReLU) → 10 (softmax) MLP trained with plain SGD reaches **97.65%
+test accuracy** (9374 / 10000 correct) after 20,000 mini-batch iterations
 (batch size 32), comfortably past the 95% target.
 
-Training run (Release build, ~80s total):
+Training run (Release build, ~78s total):
 
 ```
 Reading label file ... done
 Number of labels: 60000
 Reading image file ... done
 Number of images: 60000
-[0s]Iteration:0     Loss:   2.38839
-[3s]Iteration:1000  Loss:   0.25490
-[7s]Iteration:2000  Loss:   0.16775
-[11s]Iteration:3000 Loss:   0.08112
-[15s]Iteration:4000 Loss:   0.08065
-[19s]Iteration:5000 Loss:   0.10720
-[23s]Iteration:6000 Loss:   0.04353
-[27s]Iteration:7000 Loss:   0.04553
-[30s]Iteration:8000 Loss:   0.02867
-[34s]Iteration:9000 Loss:   0.04441
-[38s]Iteration:10000 Loss:  0.07598
-[42s]Iteration:11000 Loss:  0.01442
-[46s]Iteration:12000 Loss:  0.03568
-[50s]Iteration:13000 Loss:  0.01285
-[54s]Iteration:14000 Loss:  0.01331
-[58s]Iteration:15000 Loss:  0.02204
-[62s]Iteration:16000 Loss:  0.02794
-[66s]Iteration:17000 Loss:  0.02801
-[70s]Iteration:18000 Loss:  0.03516
-[74s]Iteration:19000 Loss:  0.01120
+[0s]Iteration:0      Loss:   2.29683
+[3s]Iteration:1000   Loss:   0.30315
+[7s]Iteration:2000   Loss:   0.04571
+[11s]Iteration:3000  Loss:   0.07731
+[15s]Iteration:4000  Loss:   0.11552
+[19s]Iteration:5000  Loss:   0.02341
+[23s]Iteration:6000  Loss:   0.06475
+[27s]Iteration:7000  Loss:   0.22444
+[31s]Iteration:8000  Loss:   0.02420
+[35s]Iteration:9000  Loss:   0.15183
+[39s]Iteration:10000 Loss:   0.00649
+[44s]Iteration:11000 Loss:   0.03393
+[48s]Iteration:12000 Loss:   0.08908
+[52s]Iteration:13000 Loss:   0.06621
+[56s]Iteration:14000 Loss:   0.05425
+[60s]Iteration:15000 Loss:   0.01219
+[64s]Iteration:16000 Loss:   0.01507
+[68s]Iteration:17000 Loss:   0.01716
+[72s]Iteration:18000 Loss:   0.01142
+[76s]Iteration:19000 Loss:   0.05683
 Running testing ...
 Number of labels: 10000
 Number of images: 10000
-Correct: 9405
-Incorrect: 195
-% correct: 0.97969
+Correct: 9374
+Incorrect: 226
+% correct: 0.97646
 ```
 
 ## Design
@@ -79,14 +79,14 @@ Forward + backward implemented and gradient-checked:
 | Op | Notes |
 |---|---|
 | `matmul` | `C = A @ B`; `dA = dC @ Bᵀ`, `dB = Aᵀ @ dC` |
-| `add` / `sub` / `mul` | element-wise (Hadamard) |
 | `add_bias` | `(rows, cols) + (1, cols)`; bias grad sums over the batch dim |
 | `relu` | `max(0, x)` |
 | `softmax` | per-row `exp(x − rowmax) / rowsum` (forward only) |
-| `cross_entropy_loss` | fused softmax + CE; backward `(probs − one_hot) / batch_size` |
+| `fused_cross_entropy_loss` | fused softmax + CE; backward `(probs − one_hot) / batch_size` |
 
-Helpers: `randn`, `zeros`, `at`, `set`, `grad_at`, `sum`, `transpose`, `clone`,
-`zero_grad`, `adjust_weights` (SGD `w -= lr * grad`), `backward`, `operator<<`.
+Helpers: `randn`, `zeros`, `at`, `set`, `grad_at`, `val`, `sum`, `transpose`,
+`clone`, `zero_grad`, `adjust_weights` (SGD `w -= lr * grad`), `backward`,
+`operator<<`.
 
 ## Build & run
 

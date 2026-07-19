@@ -63,7 +63,6 @@ class Tensor {
 
     // utility function
     void DFSVisit(Tensor::Node* curr, std::unordered_set<Node*>& visited, std::stack<Node*>& stack);
-    Tensor mul_nograd(const Tensor& t) const; /* Hadamard product */
 
    public:
     // Empty/undefined tensor (no storage). Assign into it later.
@@ -112,12 +111,8 @@ class Tensor {
     // Tensor ops
     Tensor transpose() const;
     Tensor matmul(const Tensor&) const;
-    Tensor add(const float val);
     Tensor clone() const;
-    float sum() const;  // returns the sum of all elements of a tensor
-    Tensor add(const Tensor&) const;
-    Tensor sub(const Tensor&) const;
-    Tensor mul(const Tensor&) const;            /* Hadamard product */
+    float sum() const;                          // returns the sum of all elements of a tensor
     Tensor add_bias(const Tensor& bias) const;  // this: (rows, cols), bias: (1, cols)
     Tensor relu() const;
     Tensor fused_cross_entropy_loss(Tensor labels) const;

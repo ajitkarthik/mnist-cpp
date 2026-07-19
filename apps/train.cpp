@@ -155,6 +155,7 @@ int main() {
 
     // Training
     constexpr int TRAINING_ITERATIONS = 20000;
+    constexpr int TRAINING_ITERATIONS_LR_DECAY = 10000;
     constexpr int BATCHSIZE = 32;
     constexpr float LEARNING_RATE_SLOW = 0.01;
     constexpr float LEARNING_RATE_FAST = 0.1;
@@ -184,7 +185,7 @@ int main() {
 
         // adjust weights for parameters
         for (auto& p : params) {
-            if (i <= 10000)
+            if (i <= TRAINING_ITERATIONS_LR_DECAY)
                 p.adjust_weights(LEARNING_RATE_FAST);
             else
                 p.adjust_weights(LEARNING_RATE_SLOW);
@@ -228,7 +229,7 @@ int main() {
     }
 
     std::cout << "Correct: " << correct << "\n";
-    std::cout << "Inorrect: " << incorrect << "\n";
+    std::cout << "Incorrect: " << incorrect << "\n";
     std::cout << "% correct: " << correct * 1.0 / (correct + incorrect) << "\n";
 
     return 0;
