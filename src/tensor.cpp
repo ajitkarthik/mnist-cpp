@@ -74,14 +74,19 @@ int Tensor::max_idx(int row) {
 
 Tensor Tensor::zeros(int rows, int cols) { return Tensor(rows, cols); }
 
-Tensor Tensor::randn(int rows, int cols) {
-    // One RNG shared across calls, seeded once. Not thread-safe; fine here.
+static std::mt19937& randn_gen() {
     static std::mt19937 gen{std::random_device{}()};
+    return gen;
+}
+
+void Tensor::seed(uint32_t s) { randn_gen().seed(s); }
+
+Tensor Tensor::randn(int rows, int cols) {
     std::normal_distribution<float> dist(0.0f, 1.0f);  // mean 0, stddev 1
 
     Tensor t(rows, cols);
     for (int i = 0; i < rows; ++i)
-        for (int j = 0; j < cols; ++j) t.set(i, j, dist(gen));
+        for (int j = 0; j < cols; ++j) t.set(i, j, dist(randn_gen()));
     return t;
 }
 

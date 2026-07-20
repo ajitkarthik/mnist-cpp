@@ -100,10 +100,10 @@ int read_labels(std::string_view filename, std::vector<uint8_t>& labels) {
     return labels.size();
 }
 
+// The caller owns the generator so the draw sequence is reproducible across runs
+// (and so we don't pay to re-seed a Mersenne twister on every call).
 void assemble_minibatch(Tensor& X, Tensor& y, std::vector<std::vector<uint8_t>>& images,
-                        std::vector<uint8_t>& labels, int batchsize) {
-    std::random_device rd;
-    std::mt19937 g(rd());
+                        std::vector<uint8_t>& labels, int batchsize, std::mt19937& g) {
     std::uniform_int_distribution<int> distrib(0, static_cast<int>(images.size()) - 1);
 
     for (int b = 0; b < batchsize; b++) {
@@ -128,16 +128,23 @@ int main() {
 
     // MLP
     constexpr int N_HIDDEN = 128;
+    // Fix the weight-init stream so the whole run is reproducible.
+    constexpr uint32_t INIT_SEED = 2024;
+    Tensor::seed(INIT_SEED);
     Tensor W1 = Tensor::randn(rows * cols, N_HIDDEN);
     Tensor b1 = Tensor::zeros(1, N_HIDDEN);
-    Tensor W2 = Tensor::randn(N_HIDDEN, NUM_CLASSES);
-    Tensor b2 = Tensor::zeros(1, NUM_CLASSES);
+    Tensor W2 = Tensor::randn(N_HIDDEN, N_HIDDEN);
+    Tensor b2 = Tensor::zeros(1, N_HIDDEN);
+    Tensor W3 = Tensor::randn(N_HIDDEN, NUM_CLASSES);
+    Tensor b3 = Tensor::zeros(1, NUM_CLASSES);
 
     std::vector<Tensor> params;
     params.push_back(W1);
     params.push_back(b1);
     params.push_back(W2);
     params.push_back(b2);
+    params.push_back(W3);
+    params.push_back(b3);
 
     // Kaiming init for W1 (since it feeds RELU)
     for (int i = 0; i < W1.rows(); i++) {
@@ -146,10 +153,17 @@ int main() {
         }
     }
 
-    // Xavier/Glorot init for W2 (since it feeds softmax)
+    // Kaiming init for W2 (since it feeds RELU)
+    for (int i = 0; i < W2.rows(); i++) {
+        for (int j = 0; j < W2.cols(); j++) {
+            W2.set(i, j, W2.at(i, j) * sqrt(2.0f / N_HIDDEN));
+        }
+    }
+
+    // Xavier init for W3 (since it feeds softmax)
     for (uint32_t i = 0; i < N_HIDDEN; i++) {
         for (uint32_t j = 0; j < NUM_CLASSES; j++) {
-            W2.set(i, j, W2.at(i, j) * (sqrt(1.0f / (N_HIDDEN))));
+            W3.set(i, j, W3.at(i, j) * (sqrt(1.0f / (N_HIDDEN))));
         }
     }
 
@@ -161,6 +175,12 @@ int main() {
     constexpr float LEARNING_RATE_FAST = 0.1;
     const int features = static_cast<int>(rows * cols);  // 784
 
+    // Fixed seeds so runs are reproducible and two configs can be compared
+    // without mini-batch order accounting for the difference.
+    constexpr uint32_t TRAIN_SEED = 1337;
+    constexpr uint32_t TEST_SEED = 4242;
+    std::mt19937 train_gen(TRAIN_SEED);
+
     // Training loop
     auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < TRAINING_ITERATIONS; i++) {
@@ -168,10 +188,17 @@ int main() {
         Tensor X(BATCHSIZE, features);  // (BATCHSIZE, 784), pixels normalized to [0, 1]
         Tensor y(BATCHSIZE, 1);         // matching labels for the batch
 
-        assemble_minibatch(X, y, images, labels, BATCHSIZE);
+        assemble_minibatch(X, y, images, labels, BATCHSIZE, train_gen);
 
-        Tensor loss =
-            X.matmul(W1).add_bias(b1).relu().matmul(W2).add_bias(b2).fused_cross_entropy_loss(y);
+        Tensor loss = X.matmul(W1)
+                          .add_bias(b1)
+                          .relu()
+                          .matmul(W2)
+                          .add_bias(b2)
+                          .relu()
+                          .matmul(W3)
+                          .add_bias(b3)
+                          .fused_cross_entropy_loss(y);
 
         if (!(i % 1000)) {
             auto duration = std::chrono::duration_cast<std::chrono::seconds>(
@@ -208,6 +235,9 @@ int main() {
     constexpr int TEST_ITERATIONS = 300;
     int correct = 0;
     int incorrect = 0;
+    // Seeded separately from training so the eval sample is identical across
+    // runs regardless of how many training draws preceded it.
+    std::mt19937 test_gen(TEST_SEED);
 
     // Testing loop
     for (int i = 0; i < TEST_ITERATIONS; i++) {
@@ -215,9 +245,17 @@ int main() {
         Tensor X(BATCHSIZE, features);  // (BATCHSIZE, 784), pixels normalized to [0, 1]
         Tensor y(BATCHSIZE, 1);         // matching labels for the batch
 
-        assemble_minibatch(X, y, images, labels, BATCHSIZE);
+        assemble_minibatch(X, y, images, labels, BATCHSIZE, test_gen);
 
-        Tensor probs = X.matmul(W1).add_bias(b1).relu().matmul(W2).add_bias(b2).softmax();
+        Tensor probs = X.matmul(W1)
+                           .add_bias(b1)
+                           .relu()
+                           .matmul(W2)
+                           .add_bias(b2)
+                           .relu()
+                           .matmul(W3)
+                           .add_bias(b3)
+                           .softmax();
 
         for (int i = 0; i < BATCHSIZE; i++) {
             if (probs.max_idx(i) == y.at(i, 0)) {

@@ -82,6 +82,9 @@ class Tensor {
 
     static Tensor randn(int rows, int cols);
     static Tensor zeros(int rows, int cols);
+    // Reseed the generator backing randn(). By default it is seeded from
+    // std::random_device; call this to make a run reproducible.
+    static void seed(uint32_t s);
 
     // misc helpers
     // set element [i, j]

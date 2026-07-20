@@ -6,44 +6,59 @@ digits. No ML dependencies — the point is to build the autograd engine by hand
 
 ## Results
 
-A 784 → 128 (ReLU) → 10 (softmax) MLP trained with plain SGD reaches **97.65%
-test accuracy** (9374 / 10000 correct) after 20,000 mini-batch iterations
-(batch size 32), comfortably past the 95% target.
+A 784 → 128 (ReLU) → 128 (ReLU) → 10 (softmax) MLP trained with plain SGD
+reaches **98.05% test accuracy** (9413 / 9600 correct) after 20,000 mini-batch
+iterations (batch size 32), comfortably past the 95% target.
 
-Training run (Release build, ~78s total):
+Learning rate is 0.1 for the first 10,000 iterations, then decays to 0.01.
+Weights use He/Kaiming init (`sqrt(2 / fan_in)`) on the two ReLU-feeding layers
+and Xavier (`sqrt(1 / fan_in)`) on the output layer; biases start at zero.
+
+All three RNG streams are seeded to fixed constants — weight init
+(`Tensor::seed`), training mini-batches, and evaluation mini-batches — so the
+run is **reproducible**: repeated invocations produce byte-identical output.
+That makes A/B comparisons of architecture or hyperparameter changes
+meaningful, since batch order and init can no longer explain a difference.
+
+Training run (Release build, ~86s total):
 
 ```
 Reading label file ... done
 Number of labels: 60000
 Reading image file ... done
 Number of images: 60000
-[0s]Iteration:0      Loss:   2.29683
-[3s]Iteration:1000   Loss:   0.30315
-[7s]Iteration:2000   Loss:   0.04571
-[11s]Iteration:3000  Loss:   0.07731
-[15s]Iteration:4000  Loss:   0.11552
-[19s]Iteration:5000  Loss:   0.02341
-[23s]Iteration:6000  Loss:   0.06475
-[27s]Iteration:7000  Loss:   0.22444
-[31s]Iteration:8000  Loss:   0.02420
-[35s]Iteration:9000  Loss:   0.15183
-[39s]Iteration:10000 Loss:   0.00649
-[44s]Iteration:11000 Loss:   0.03393
-[48s]Iteration:12000 Loss:   0.08908
-[52s]Iteration:13000 Loss:   0.06621
-[56s]Iteration:14000 Loss:   0.05425
-[60s]Iteration:15000 Loss:   0.01219
-[64s]Iteration:16000 Loss:   0.01507
-[68s]Iteration:17000 Loss:   0.01716
-[72s]Iteration:18000 Loss:   0.01142
-[76s]Iteration:19000 Loss:   0.05683
+[0s]Iteration:0      Loss:   2.37746
+[4s]Iteration:1000   Loss:   0.04152
+[9s]Iteration:2000   Loss:   0.09568
+[13s]Iteration:3000  Loss:   0.44890
+[18s]Iteration:4000  Loss:   0.04246
+[22s]Iteration:5000  Loss:   0.01949
+[27s]Iteration:6000  Loss:   0.04889
+[31s]Iteration:7000  Loss:   0.00220
+[36s]Iteration:8000  Loss:   0.01590
+[40s]Iteration:9000  Loss:   0.02551
+[45s]Iteration:10000 Loss:   0.01280
+[49s]Iteration:11000 Loss:   0.00175
+[54s]Iteration:12000 Loss:   0.00344
+[58s]Iteration:13000 Loss:   0.01457
+[63s]Iteration:14000 Loss:   0.03735
+[68s]Iteration:15000 Loss:   0.00155
+[72s]Iteration:16000 Loss:   0.02464
+[77s]Iteration:17000 Loss:   0.01448
+[81s]Iteration:18000 Loss:   0.01362
+[86s]Iteration:19000 Loss:   0.13759
 Running testing ...
 Number of labels: 10000
 Number of images: 10000
-Correct: 9374
-Incorrect: 226
-% correct: 0.97646
+Correct: 9413
+Incorrect: 187
+% correct: 0.98052
 ```
+
+Note: evaluation samples 300 random mini-batches of 32 (9,600 draws with
+replacement) from the 10,000-image test set rather than doing one exact pass,
+so the accuracy is an estimate over a resample, not a strict full-test-set
+score.
 
 ## Design
 
@@ -84,9 +99,13 @@ Forward + backward implemented and gradient-checked:
 | `softmax` | per-row `exp(x − rowmax) / rowsum` (forward only) |
 | `fused_cross_entropy_loss` | fused softmax + CE; backward `(probs − one_hot) / batch_size` |
 
-Helpers: `randn`, `zeros`, `at`, `set`, `grad_at`, `val`, `sum`, `transpose`,
-`clone`, `zero_grad`, `adjust_weights` (SGD `w -= lr * grad`), `backward`,
-`operator<<`.
+Helpers: `randn`, `zeros`, `seed`, `at`, `set`, `grad_at`, `val`, `sum`,
+`max_idx`, `transpose`, `clone`, `zero_grad`, `adjust_weights`
+(SGD `w -= lr * grad`), `backward`, `operator<<`.
+
+`Tensor::seed(uint32_t)` reseeds the generator behind `randn`. By default it is
+seeded from `std::random_device`, so determinism is opt-in from the application
+rather than baked into the library.
 
 ## Build & run
 
