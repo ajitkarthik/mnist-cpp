@@ -175,10 +175,8 @@ int main() {
     constexpr float LEARNING_RATE_FAST = 0.1;
     const int features = static_cast<int>(rows * cols);  // 784
 
-    // Fixed seeds so runs are reproducible and two configs can be compared
-    // without mini-batch order accounting for the difference.
+    // Pick seed for training mini-batch generation
     constexpr uint32_t TRAIN_SEED = 1337;
-    constexpr uint32_t TEST_SEED = 4242;
     std::mt19937 train_gen(TRAIN_SEED);
 
     // Training loop
@@ -235,8 +233,8 @@ int main() {
     constexpr int TEST_ITERATIONS = 300;
     int correct = 0;
     int incorrect = 0;
-    // Seeded separately from training so the eval sample is identical across
-    // runs regardless of how many training draws preceded it.
+    // Pick seed for test mini-batch generation
+    constexpr uint32_t TEST_SEED = 4242;
     std::mt19937 test_gen(TEST_SEED);
 
     // Testing loop
